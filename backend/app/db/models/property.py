@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import (
-    BigInteger, DateTime, Float, Integer, JSON, SmallInteger,
+    BigInteger, DateTime, Float, ForeignKey, Integer, JSON, SmallInteger,
     String, Text, UniqueConstraint, func, Index,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -32,7 +32,7 @@ class Property(Base, TimestampMixin):
     address_street: Mapped[Optional[str]] = mapped_column(String(200))
     address_suburb: Mapped[Optional[str]] = mapped_column(String(100))
     address_postcode: Mapped[Optional[str]] = mapped_column(String(4))
-    suburb_id: Mapped[Optional[int]] = mapped_column(Integer, index=True)
+    suburb_id: Mapped[Optional[int]] = mapped_column(ForeignKey("suburbs.id", ondelete="SET NULL"))
 
     # Geo
     latitude: Mapped[Optional[float]] = mapped_column(Float)
@@ -99,7 +99,7 @@ class PropertyImage(Base):
     __tablename__ = "property_images"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    property_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    property_id: Mapped[int] = mapped_column(ForeignKey("properties.id", ondelete="CASCADE"), nullable=False, index=True)
     url: Mapped[str] = mapped_column(Text, nullable=False)
     display_order: Mapped[int] = mapped_column(SmallInteger, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

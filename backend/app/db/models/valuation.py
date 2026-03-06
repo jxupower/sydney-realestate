@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import BigInteger, DateTime, Float, Integer, JSON, String, func, Index
+from sqlalchemy import BigInteger, DateTime, Float, ForeignKey, Integer, JSON, String, UniqueConstraint, func, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.models.base import Base
@@ -11,7 +11,7 @@ class MLValuation(Base):
     __tablename__ = "ml_valuations"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    property_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    property_id: Mapped[int] = mapped_column(ForeignKey("properties.id", ondelete="CASCADE"), nullable=False, index=True)
     model_version: Mapped[str] = mapped_column(String(50), nullable=False)
 
     # Predicted fair value (AUD cents)
@@ -32,6 +32,6 @@ class MLValuation(Base):
     property: Mapped["Property"] = relationship(back_populates="valuations", foreign_keys=[property_id])
 
     __table_args__ = (
-        Index("ix_ml_valuations_property_model", "property_id", "model_version"),
+        UniqueConstraint("property_id", "model_version", name="uq_valuation_property_version"),
         Index("ix_ml_valuations_score_desc", "underval_score_pct"),
     )

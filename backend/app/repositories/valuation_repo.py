@@ -23,6 +23,16 @@ class ValuationRepository(BaseRepository[MLValuation]):
             return {"model_version": None, "status": "no model trained yet"}
         return {"model_version": version, "status": "active"}
 
+    async def get_latest_for_property(self, property_id: int) -> Optional[MLValuation]:
+        """Return the most recent MLValuation for a property."""
+        result = await self.db.execute(
+            select(MLValuation)
+            .where(MLValuation.property_id == property_id)
+            .order_by(desc(MLValuation.predicted_at))
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
     async def bulk_insert(self, records: list[dict]) -> int:
         """Bulk-insert ML valuation records. Returns count inserted."""
         objects = [MLValuation(**r) for r in records]

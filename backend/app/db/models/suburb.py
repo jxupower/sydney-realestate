@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import Optional
 
-from sqlalchemy import Date, DateTime, Float, Integer, SmallInteger, String, Text, UniqueConstraint, func
+from sqlalchemy import Date, DateTime, Float, ForeignKey, Integer, SmallInteger, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.models.base import Base, TimestampMixin
@@ -36,7 +36,7 @@ class SuburbStats(Base):
     __tablename__ = "suburb_stats"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    suburb_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    suburb_id: Mapped[int] = mapped_column(ForeignKey("suburbs.id", ondelete="CASCADE"), nullable=False, index=True)
     snapshot_date: Mapped[date] = mapped_column(Date, nullable=False)
     median_price: Mapped[Optional[int]] = mapped_column(Integer)  # AUD cents
     median_price_house: Mapped[Optional[int]] = mapped_column(Integer)

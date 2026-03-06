@@ -22,4 +22,9 @@ BEAT_SCHEDULE = {
         "task": "ml.retrain",
         "schedule": crontab(minute=0, hour=2, day_of_week="sunday"),
     },
+    # OSM amenity refresh: monthly on the 1st at 4am AEST
+    "osm-enrich-monthly": {
+        "task": "ingestion.osm_enrich",
+        "schedule": crontab(minute=0, hour=4, day_of_month=1),
+    },
 }

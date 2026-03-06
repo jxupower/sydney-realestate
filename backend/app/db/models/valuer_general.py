@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import Optional
 
-from sqlalchemy import BigInteger, Date, DateTime, Integer, String, UniqueConstraint, func
+from sqlalchemy import BigInteger, Date, DateTime, ForeignKey, Integer, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.models.base import Base
@@ -30,7 +30,7 @@ class ValuerGeneralRecord(Base):
     base_date: Mapped[Optional[date]] = mapped_column(Date)
 
     # Linked to a property row after fuzzy address matching (nullable until matched)
-    property_id: Mapped[Optional[int]] = mapped_column(Integer, index=True)
+    property_id: Mapped[Optional[int]] = mapped_column(ForeignKey("properties.id", ondelete="SET NULL"), index=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

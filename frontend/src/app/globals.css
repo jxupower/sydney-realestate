@@ -1,0 +1,22 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Leaflet CSS — must be imported globally */
+@import "leaflet/dist/leaflet.css";
+
+:root {
+  --bg-base: #F8F9FB;
+  --bg-card: #FFFFFF;
+  --border: #E5E7EB;
+  --text-primary: #111827;
+  --text-secondary: #6B7280;
+  --accent: #4F46E5;
+  --sidebar-bg: #1E1B4B;
+  --sidebar-text: #C7D2FE;
+}
+
+body {
+  background-color: var(--bg-base);
+  color: var(--text-primary);
+}

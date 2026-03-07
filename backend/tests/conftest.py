@@ -10,8 +10,9 @@ from app.dependencies import get_db
 TEST_DB_URL = "sqlite+aiosqlite:///:memory:"
 
 
-@pytest_asyncio.fixture(scope="session")
+@pytest_asyncio.fixture
 async def test_engine():
+    """Function-scoped engine — each test gets a fresh in-memory SQLite DB."""
     engine = create_async_engine(TEST_DB_URL, echo=False)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

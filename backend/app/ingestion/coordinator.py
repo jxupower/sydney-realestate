@@ -2,8 +2,10 @@
 
 CLI usage:
     python -m app.ingestion.coordinator --source domain_api
+    python -m app.ingestion.coordinator --source onthehouse
     python -m app.ingestion.coordinator --source valuer_general
     python -m app.ingestion.coordinator --source nsw_sales
+    python -m app.ingestion.coordinator --source fuzzy_vg_match
     python -m app.ingestion.coordinator --source all
 """
 
@@ -25,7 +27,7 @@ from app.utils.logger import configure_logging
 
 logger = structlog.get_logger(__name__)
 
-VALID_SOURCES = ["domain_api", "valuer_general", "nsw_sales", "all"]
+VALID_SOURCES = ["domain_api", "onthehouse", "valuer_general", "nsw_sales", "fuzzy_vg_match", "all"]
 
 
 async def _run_domain(db: AsyncSession, run: IngestionRun) -> tuple[int, int]:
@@ -107,6 +109,49 @@ async def _run_valuer_general(db: AsyncSession, run: IngestionRun) -> tuple[int,
     return inserted, 0
 
 
+async def _run_onthehouse(db: AsyncSession, run: IngestionRun) -> tuple[int, int]:
+    from app.ingestion.onthehouse_scraper import OnTheHouseScraper
+
+    ingester = OnTheHouseScraper()
+    raw_items = await ingester.fetch()
+    run.records_fetched = (run.records_fetched or 0) + len(raw_items)
+
+    repo = PropertyRepository(db)
+    suburb_repo = SuburbRepository(db)
+    inserted = updated = 0
+
+    for raw in raw_items:
+        suburb_id = None
+        if raw.address_suburb and raw.address_postcode:
+            suburb, _ = await suburb_repo.upsert(
+                name=raw.address_suburb,
+                postcode=raw.address_postcode,
+                latitude=raw.latitude,
+                longitude=raw.longitude,
+            )
+            suburb_id = suburb.id
+
+        data = raw.to_db_dict()
+        data["suburb_id"] = suburb_id
+
+        _, was_inserted = await repo.upsert(data)
+        if was_inserted:
+            inserted += 1
+        else:
+            updated += 1
+
+    await db.commit()
+    logger.info("OnTheHouse ingestion complete", inserted=inserted, updated=updated)
+    return inserted, updated
+
+
+async def _run_fuzzy_vg_match() -> tuple[int, int]:
+    from app.ingestion.vg_matcher import run_vg_matching
+
+    result = await run_vg_matching()
+    return result["matched"], 0
+
+
 async def _run_nsw_sales(db: AsyncSession, run: IngestionRun) -> tuple[int, int]:
     """Match NSW Sales records to existing properties and update sold_price/sold_at."""
     from app.ingestion.nsw_sales import load_all_nsw_sales
@@ -154,15 +199,21 @@ async def run_ingestion(source: str) -> dict:
         try:
             if source == "domain_api":
                 inserted, updated = await _run_domain(db, run)
+            elif source == "onthehouse":
+                inserted, updated = await _run_onthehouse(db, run)
             elif source == "valuer_general":
                 inserted, updated = await _run_valuer_general(db, run)
             elif source == "nsw_sales":
                 inserted, updated = await _run_nsw_sales(db, run)
+            elif source == "fuzzy_vg_match":
+                inserted, updated = await _run_fuzzy_vg_match()
             elif source == "all":
                 i1, u1 = await _run_domain(db, run)
-                i2, u2 = await _run_valuer_general(db, run)
-                i3, u3 = await _run_nsw_sales(db, run)
-                inserted, updated = i1 + i2 + i3, u1 + u2 + u3
+                i2, u2 = await _run_onthehouse(db, run)
+                i3, u3 = await _run_valuer_general(db, run)
+                i4, u4 = await _run_nsw_sales(db, run)
+                i5, u5 = await _run_fuzzy_vg_match()
+                inserted, updated = i1 + i2 + i3 + i4 + i5, u1 + u2 + u3 + u4 + u5
             else:
                 raise ValueError(f"Unknown source: {source}. Valid: {VALID_SOURCES}")
 

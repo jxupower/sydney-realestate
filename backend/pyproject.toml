@@ -41,8 +41,9 @@ dependencies = [
     "rapidfuzz>=3.9",
     "beautifulsoup4>=4.12",
 
-    # Logging
+    # Logging + error tracking
     "structlog>=24.1",
+    "sentry-sdk[fastapi]>=2.0",
 ]
 
 [project.optional-dependencies]

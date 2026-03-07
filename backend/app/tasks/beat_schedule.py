@@ -22,9 +22,27 @@ BEAT_SCHEDULE = {
         "task": "ml.retrain",
         "schedule": crontab(minute=0, hour=2, day_of_week="sunday"),
     },
+    # OnTheHouse scrape: daily at 1am AEST
+    "ingest-onthehouse-daily": {
+        "task": "ingestion.run",
+        "schedule": crontab(minute=0, hour=1),
+        "args": ("onthehouse",),
+    },
+    # Fuzzy VG match: daily at 5am AEST (after VG import and ingestion)
+    "fuzzy-vg-match-daily": {
+        "task": "ingestion.run",
+        "schedule": crontab(minute=0, hour=5),
+        "args": ("fuzzy_vg_match",),
+    },
     # OSM amenity refresh: monthly on the 1st at 4am AEST
     "osm-enrich-monthly": {
         "task": "ingestion.osm_enrich",
         "schedule": crontab(minute=0, hour=4, day_of_month=1),
+    },
+    # Optuna hyperparameter tuning: monthly on the 1st at 2am AEST
+    "optuna-tune-monthly": {
+        "task": "ml.tune",
+        "schedule": crontab(minute=0, hour=2, day_of_month=1),
+        "kwargs": {"n_trials": 100},
     },
 }

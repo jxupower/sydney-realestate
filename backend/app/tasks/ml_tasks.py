@@ -37,6 +37,22 @@ def run_batch_predict(self) -> dict:
         raise self.retry(exc=exc, countdown=60)
 
 
+@celery_app.task(name="ml.tune", bind=True, time_limit=14400, max_retries=1)
+def tune_hyperparams(self, n_trials: int = 50, timeout: int | None = None) -> dict:
+    """Run Optuna hyperparameter search and save the best XGBoost artifact."""
+    logger.info("Optuna tuning task started", n_trials=n_trials, task_id=self.request.id)
+    try:
+        from app.ml.tuner import run_tuning
+        result = asyncio.get_event_loop().run_until_complete(
+            run_tuning(n_trials=n_trials, timeout=timeout)
+        )
+        logger.info("Optuna tuning complete", result=result, task_id=self.request.id)
+        return result
+    except Exception as exc:
+        logger.error("Optuna tuning failed", error=str(exc), task_id=self.request.id)
+        raise self.retry(exc=exc, countdown=60)
+
+
 @celery_app.task(name="ingestion.osm_enrich", bind=True, time_limit=7200)
 def enrich_osm(self, suburb_ids: list[int] | None = None) -> dict:
     """Refresh OSM amenity data for all (or specific) suburbs."""

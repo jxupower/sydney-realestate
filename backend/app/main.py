@@ -8,7 +8,7 @@ from app.config import settings
 from app.db.session import engine
 from app.db.models.base import Base
 from app.api.router import api_router
-from app.utils.logger import configure_logging
+from app.utils.logger import configure_logging, init_sentry
 
 logger = structlog.get_logger()
 
@@ -16,6 +16,7 @@ logger = structlog.get_logger()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     configure_logging()
+    init_sentry(dsn=settings.sentry_dsn)
     logger.info("Starting Sydney Real Estate API", radius_km=settings.search_radius_km)
     yield
     await engine.dispose()

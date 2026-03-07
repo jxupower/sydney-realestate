@@ -20,3 +20,37 @@ def configure_logging(level: str = "INFO") -> None:
         context_class=dict,
         logger_factory=structlog.PrintLoggerFactory(),
     )
+
+
+def init_sentry(dsn: str, environment: str = "production", release: str | None = None) -> None:
+    """Initialise Sentry SDK if a DSN is configured.
+
+    Call once at application startup (before request handling begins).
+    No-ops silently if dsn is empty.
+    """
+    if not dsn:
+        return
+
+    try:
+        import sentry_sdk
+        from sentry_sdk.integrations.fastapi import FastApiIntegration
+        from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
+        from sentry_sdk.integrations.celery import CeleryIntegration
+
+        sentry_sdk.init(
+            dsn=dsn,
+            environment=environment,
+            release=release,
+            traces_sample_rate=0.1,   # 10% of requests traced for performance
+            profiles_sample_rate=0.05,
+            integrations=[
+                FastApiIntegration(transaction_style="endpoint"),
+                SqlalchemyIntegration(),
+                CeleryIntegration(monitor_beat_tasks=True),
+            ],
+            # Don't send PII (IP addresses, user agents)
+            send_default_pii=False,
+        )
+    except ImportError:
+        # sentry-sdk not installed — skip silently
+        pass

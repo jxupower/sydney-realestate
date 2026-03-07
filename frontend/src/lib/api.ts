@@ -41,9 +41,22 @@ export interface PropertySummary {
   bathrooms: number | null;
   car_spaces: number | null;
   land_size_sqm: number | null;
+  floor_area_sqm: number | null;
   list_price: number | null;
   listed_at: string | null;
   valuation: ValuationSummary | null;
+  // detail fields (present on GET /properties/{id})
+  address_street?: string | null;
+  year_built?: number | null;
+  description?: string | null;
+  features?: string[] | null;
+  images?: string[];
+  agent_name?: string | null;
+  agency_name?: string | null;
+  sold_price?: number | null;
+  sold_at?: string | null;
+  first_seen_at?: string | null;
+  last_seen_at?: string | null;
 }
 
 export interface PropertyListResponse {
@@ -72,9 +85,17 @@ export interface Suburb {
   stats: SuburbStats;
 }
 
+export interface SuburbListResponse {
+  items: Suburb[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
 // --- Property queries ---
 
 export interface PropertyFilters {
+  [key: string]: string | number | boolean | undefined;
   suburb?: string;
   postcode?: string;
   property_type?: string;
@@ -106,27 +127,28 @@ function buildQuery(filters: Record<string, unknown>): string {
 export const api = {
   properties: {
     list: (filters: PropertyFilters) =>
-      apiFetch<PropertyListResponse>(`/properties${buildQuery(filters)}`),
+      apiFetch<PropertyListResponse>(`/properties${buildQuery(filters as Record<string, unknown>)}`),
     undervalued: (limit = 30, property_type?: string) =>
       apiFetch<PropertyListResponse>(
         `/properties/undervalued${buildQuery({ limit, property_type })}`
       ),
     get: (id: number) => apiFetch<PropertySummary>(`/properties/${id}`),
-    valuation: (id: number) => apiFetch<object>(`/properties/${id}/valuation`),
+    valuation: (id: number) => apiFetch<ValuationDetail | null>(`/properties/${id}/valuation`),
   },
   suburbs: {
-    list: (params?: object) => apiFetch<Suburb[]>(`/suburbs${buildQuery(params ?? {})}`),
+    list: (params?: Record<string, unknown>) =>
+      apiFetch<SuburbListResponse>(`/suburbs${buildQuery(params ?? {})}`),
     get: (id: number) => apiFetch<Suburb>(`/suburbs/${id}`),
-    stats: (id: number) => apiFetch<object[]>(`/suburbs/${id}/stats`),
+    stats: (id: number) => apiFetch<SuburbStats[]>(`/suburbs/${id}/stats`),
     map: () => apiFetch<object>(`/suburbs/map`),
     properties: (id: number, limit = 20) =>
       apiFetch<PropertyListResponse>(`/suburbs/${id}/properties${buildQuery({ limit })}`),
   },
   watchlist: {
     get: (sessionId: string) =>
-      apiFetch<object[]>(`/watchlist`, { headers: { "X-Session-ID": sessionId } }),
+      apiFetch<WatchlistItem[]>(`/watchlist`, { headers: { "X-Session-ID": sessionId } }),
     add: (sessionId: string, propertyId: number, notes?: string) =>
-      apiFetch<object>(`/watchlist`, {
+      apiFetch<WatchlistItem>(`/watchlist`, {
         method: "POST",
         headers: { "X-Session-ID": sessionId },
         body: JSON.stringify({ property_id: propertyId, notes }),
@@ -137,7 +159,7 @@ export const api = {
         headers: { "X-Session-ID": sessionId },
       }),
     updateNotes: (sessionId: string, propertyId: number, notes: string) =>
-      apiFetch<object>(`/watchlist/${propertyId}`, {
+      apiFetch<WatchlistItem>(`/watchlist/${propertyId}`, {
         method: "PATCH",
         headers: { "X-Session-ID": sessionId },
         body: JSON.stringify({ notes }),
@@ -147,3 +169,23 @@ export const api = {
     modelInfo: () => apiFetch<object>(`/valuations/model-info`),
   },
 };
+
+// --- Additional types ---
+
+export interface ValuationDetail {
+  predicted_value_cents: number;
+  confidence_interval_low: number | null;
+  confidence_interval_high: number | null;
+  underval_score_pct: number | null;
+  feature_importances: Record<string, number> | null;
+  model_version: string | null;
+  predicted_at: string;
+}
+
+export interface WatchlistItem {
+  id: number;
+  property_id: number;
+  notes: string | null;
+  created_at: string;
+  property?: PropertySummary;
+}

@@ -19,7 +19,6 @@ from bs4 import BeautifulSoup
 
 from app.ingestion.base import BaseIngester, RawProperty
 from app.ingestion.domain_api import SYDNEY_POSTCODES
-from app.utils.geo import is_within_search_radius
 
 logger = structlog.get_logger(__name__)
 
@@ -223,7 +222,8 @@ class OnTheHouseScraper(BaseIngester):
 
             for card in cards:
                 raw = self._parse_card(card)
-                if raw and is_within_search_radius(raw.latitude, raw.longitude):
+                if raw:
+                    # Lat/lng not available on list pages; postcodes already constrain to Sydney
                     results.append(raw)
 
             if not soup.select_one(_CSS_PAGINATION_NEXT):

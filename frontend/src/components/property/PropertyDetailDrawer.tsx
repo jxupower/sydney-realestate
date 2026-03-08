@@ -43,16 +43,25 @@ export function PropertyDetailDrawer({ property, onClose }: PropertyDetailDrawer
     ["Status", p.status],
     ["Year built", p.year_built],
     ["Floor area", p.floor_area_sqm ? formatArea(p.floor_area_sqm) : null],
+    [
+      "Price guide",
+      p.price_guide_low && p.price_guide_high
+        ? `${formatPrice(p.price_guide_low)} – ${formatPrice(p.price_guide_high)}`
+        : p.price_guide_low
+        ? `From ${formatPrice(p.price_guide_low)}`
+        : null,
+    ],
+    ["Agent", p.agent_name ? `${p.agent_name}${p.agency_name ? ` · ${p.agency_name}` : ""}` : null],
     ["Listed", formatRelativeDate(p.listed_at)],
   ];
 
   return (
     <>
-      {/* Backdrop */}
-      <div className="fixed inset-0 bg-black/10 z-40" onClick={onClose} />
+      {/* Backdrop — must be above Leaflet's max z-index (~1000) */}
+      <div className="fixed inset-0 bg-black/10 z-[1001]" onClick={onClose} />
 
       {/* Drawer */}
-      <div className="fixed right-0 top-0 h-full w-[400px] bg-white shadow-2xl z-50 flex flex-col overflow-hidden">
+      <div className="fixed right-0 top-0 h-full w-[400px] bg-white shadow-2xl z-[1002] flex flex-col overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <button
@@ -100,6 +109,25 @@ export function PropertyDetailDrawer({ property, onClose }: PropertyDetailDrawer
                 {p.address_postcode ? `, NSW ${p.address_postcode}` : ""}
               </p>
             </div>
+
+            {/* Description */}
+            {p.description && (
+              <p className="text-sm text-gray-600 leading-relaxed">{p.description}</p>
+            )}
+
+            {/* Features */}
+            {p.features && p.features.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {(p.features as string[]).map((f) => (
+                  <span
+                    key={f}
+                    className="px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 text-xs capitalize"
+                  >
+                    {f}
+                  </span>
+                ))}
+              </div>
+            )}
 
             {/* Stats row */}
             <div className="flex items-center gap-4 text-sm text-gray-600 py-3 border-t border-b border-gray-100">

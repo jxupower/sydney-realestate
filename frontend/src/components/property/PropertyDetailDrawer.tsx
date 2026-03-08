@@ -43,6 +43,15 @@ export function PropertyDetailDrawer({ property, onClose }: PropertyDetailDrawer
     ["Status", p.status],
     ["Year built", p.year_built],
     ["Floor area", p.floor_area_sqm ? formatArea(p.floor_area_sqm) : null],
+    [
+      "Price guide",
+      p.price_guide_low && p.price_guide_high
+        ? `${formatPrice(p.price_guide_low)} – ${formatPrice(p.price_guide_high)}`
+        : p.price_guide_low
+        ? `From ${formatPrice(p.price_guide_low)}`
+        : null,
+    ],
+    ["Agent", p.agent_name ? `${p.agent_name}${p.agency_name ? ` · ${p.agency_name}` : ""}` : null],
     ["Listed", formatRelativeDate(p.listed_at)],
   ];
 
@@ -100,6 +109,25 @@ export function PropertyDetailDrawer({ property, onClose }: PropertyDetailDrawer
                 {p.address_postcode ? `, NSW ${p.address_postcode}` : ""}
               </p>
             </div>
+
+            {/* Description */}
+            {p.description && (
+              <p className="text-sm text-gray-600 leading-relaxed">{p.description}</p>
+            )}
+
+            {/* Features */}
+            {p.features && p.features.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {(p.features as string[]).map((f) => (
+                  <span
+                    key={f}
+                    className="px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 text-xs capitalize"
+                  >
+                    {f}
+                  </span>
+                ))}
+              </div>
+            )}
 
             {/* Stats row */}
             <div className="flex items-center gap-4 text-sm text-gray-600 py-3 border-t border-b border-gray-100">

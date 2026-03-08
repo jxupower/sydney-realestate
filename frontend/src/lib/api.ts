@@ -53,6 +53,8 @@ export interface PropertySummary {
   images?: string[];
   agent_name?: string | null;
   agency_name?: string | null;
+  price_guide_low?: number | null;
+  price_guide_high?: number | null;
   sold_price?: number | null;
   sold_at?: string | null;
   first_seen_at?: string | null;

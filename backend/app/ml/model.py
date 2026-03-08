@@ -76,15 +76,8 @@ class ValuationModel:
             remainder="drop",
         )
 
-        # Strip early_stopping_rounds from pipeline params — it must be passed
-        # to fit() via eval_set, not the constructor, for the wrapped estimator.
-        fit_params = {k: v for k, v in xgb_params.items()
-                      if k != "early_stopping_rounds"}
-        early_stop = xgb_params.get("early_stopping_rounds")
-
-        regressor = XGBRegressor(**fit_params)
-        # Store for use in fit()
-        regressor._early_stopping_rounds = early_stop
+        # early_stopping_rounds must be in the constructor (XGBoost >= 1.7)
+        regressor = XGBRegressor(**xgb_params)
 
         return Pipeline([
             ("preprocessor", preprocessor),
@@ -110,12 +103,7 @@ class ValuationModel:
             X_train_t = preprocessor.transform(X_train)
             X_val_t = preprocessor.transform(X_val)
 
-            early_stop = getattr(regressor, "_early_stopping_rounds", None)
-            fit_kwargs = {"eval_set": [(X_val_t, y_val.values)]}
-            if early_stop:
-                fit_kwargs["early_stopping_rounds"] = early_stop
-
-            regressor.fit(X_train_t, y_train.values, **fit_kwargs)
+            regressor.fit(X_train_t, y_train.values, eval_set=[(X_val_t, y_val.values)])
             self._is_fitted = True
         else:
             self.pipeline.fit(X_train, y_train.values)

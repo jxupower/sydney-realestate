@@ -57,11 +57,11 @@ export function PropertyDetailDrawer({ property, onClose }: PropertyDetailDrawer
 
   return (
     <>
-      {/* Backdrop */}
-      <div className="fixed inset-0 bg-black/10 z-40" onClick={onClose} />
+      {/* Backdrop — must be above Leaflet's max z-index (~1000) */}
+      <div className="fixed inset-0 bg-black/10 z-[1001]" onClick={onClose} />
 
       {/* Drawer */}
-      <div className="fixed right-0 top-0 h-full w-[400px] bg-white shadow-2xl z-50 flex flex-col overflow-hidden">
+      <div className="fixed right-0 top-0 h-full w-[400px] bg-white shadow-2xl z-[1002] flex flex-col overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <button

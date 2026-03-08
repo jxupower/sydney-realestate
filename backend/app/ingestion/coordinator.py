@@ -2,6 +2,7 @@
 
 CLI usage:
     python -m app.ingestion.coordinator --source domain_api
+    python -m app.ingestion.coordinator --source homely
     python -m app.ingestion.coordinator --source onthehouse
     python -m app.ingestion.coordinator --source valuer_general
     python -m app.ingestion.coordinator --source nsw_sales
@@ -27,7 +28,7 @@ from app.utils.logger import configure_logging
 
 logger = structlog.get_logger(__name__)
 
-VALID_SOURCES = ["domain_api", "onthehouse", "valuer_general", "nsw_sales", "fuzzy_vg_match", "all"]
+VALID_SOURCES = ["domain_api", "homely", "onthehouse", "valuer_general", "nsw_sales", "fuzzy_vg_match", "all"]
 
 
 async def _run_domain(db: AsyncSession, run: IngestionRun) -> tuple[int, int]:
@@ -145,6 +146,47 @@ async def _run_onthehouse(db: AsyncSession, run: IngestionRun) -> tuple[int, int
     return inserted, updated
 
 
+async def _run_homely(db: AsyncSession, run: IngestionRun) -> tuple[int, int]:
+    from app.ingestion.homely_scraper import HomelyScraper
+
+    ingester = HomelyScraper()
+    raw_items = await ingester.fetch()
+    run.records_fetched = (run.records_fetched or 0) + len(raw_items)
+
+    repo = PropertyRepository(db)
+    suburb_repo = SuburbRepository(db)
+    inserted = updated = 0
+
+    for raw in raw_items:
+        if not is_within_search_radius(raw.latitude, raw.longitude):
+            # Homely may not provide lat/lng — allow None through (suburb-only records)
+            if raw.latitude is not None or raw.longitude is not None:
+                continue
+
+        suburb_id = None
+        if raw.address_suburb and raw.address_postcode:
+            suburb, _ = await suburb_repo.upsert(
+                name=raw.address_suburb,
+                postcode=raw.address_postcode,
+                latitude=raw.latitude,
+                longitude=raw.longitude,
+            )
+            suburb_id = suburb.id
+
+        data = raw.to_db_dict()
+        data["suburb_id"] = suburb_id
+
+        _, was_inserted = await repo.upsert(data)
+        if was_inserted:
+            inserted += 1
+        else:
+            updated += 1
+
+    await db.commit()
+    logger.info("Homely ingestion complete", inserted=inserted, updated=updated)
+    return inserted, updated
+
+
 async def _run_fuzzy_vg_match() -> tuple[int, int]:
     from app.ingestion.vg_matcher import run_vg_matching
 
@@ -153,18 +195,23 @@ async def _run_fuzzy_vg_match() -> tuple[int, int]:
 
 
 async def _run_nsw_sales(db: AsyncSession, run: IngestionRun) -> tuple[int, int]:
-    """Match NSW Sales records to existing properties and update sold_price/sold_at."""
+    """Match NSW Sales records to existing properties and update sold_price/sold_at.
+    For unmatched rows, insert a new Property record (status=sold) for ML training use.
+    """
     from app.ingestion.nsw_sales import load_all_nsw_sales
-    from sqlalchemy import select, and_, update
+    from sqlalchemy import select, and_
     from app.db.models.property import Property
 
     records = load_all_nsw_sales()
     run.records_fetched = len(records)
-    updated = 0
+    inserted = updated = 0
+
+    suburb_repo = SuburbRepository(db)
 
     for rec in records:
         if not rec.get("address_street") or not rec.get("address_suburb"):
             continue
+
         result = await db.execute(
             select(Property).where(
                 and_(
@@ -174,17 +221,60 @@ async def _run_nsw_sales(db: AsyncSession, run: IngestionRun) -> tuple[int, int]
             ).limit(1)
         )
         prop = result.scalar_one_or_none()
-        if prop and rec.get("sold_price_cents"):
-            prop.sold_price = rec["sold_price_cents"]
-            prop.sold_at = rec.get("sold_at")
-            prop.status = "sold"
-            if rec.get("land_size_sqm") and not prop.land_size_sqm:
-                prop.land_size_sqm = rec["land_size_sqm"]
-            updated += 1
+
+        if prop:
+            # Update existing property with sale data
+            if rec.get("sold_price_cents"):
+                prop.sold_price = rec["sold_price_cents"]
+                prop.sold_at = rec.get("sold_at")
+                prop.status = "sold"
+                if rec.get("land_size_sqm") and not prop.land_size_sqm:
+                    prop.land_size_sqm = rec["land_size_sqm"]
+                updated += 1
+        else:
+            # Insert new training-only sold property record
+            suburb_id = None
+            if rec.get("address_suburb") and rec.get("address_postcode"):
+                suburb, _ = await suburb_repo.upsert(
+                    name=rec["address_suburb"],
+                    postcode=rec["address_postcode"],
+                )
+                suburb_id = suburb.id
+
+            sold_date = rec.get("sold_at")
+            date_str = sold_date.strftime("%Y%m%d") if sold_date else "unknown"
+            street_slug = (rec["address_street"] or "").replace(" ", "_")[:40]
+            postcode = rec.get("address_postcode") or "0000"
+            external_id = f"nsw_{postcode}_{street_slug}_{date_str}"
+            url = f"nsw_sales://{external_id}"
+
+            is_strata = rec.get("strata", False)
+            property_type = "apartment" if is_strata else "house"
+
+            new_prop = Property(
+                external_id=external_id,
+                source="nsw_sales",
+                url=url,
+                status="sold",
+                property_type=property_type,
+                address_street=rec.get("address_street"),
+                address_suburb=rec.get("address_suburb"),
+                address_postcode=postcode,
+                suburb_id=suburb_id,
+                land_size_sqm=rec.get("land_size_sqm"),
+                sold_price=rec.get("sold_price_cents"),
+                sold_at=sold_date,
+            )
+            db.add(new_prop)
+            inserted += 1
+
+        # Flush periodically to avoid huge memory usage on large CSV batches
+        if (inserted + updated) % 500 == 0:
+            await db.flush()
 
     await db.commit()
-    logger.info("NSW Sales update complete", updated=updated)
-    return 0, updated
+    logger.info("NSW Sales ingestion complete", inserted=inserted, updated=updated)
+    return inserted, updated
 
 
 async def run_ingestion(source: str) -> dict:
@@ -199,6 +289,8 @@ async def run_ingestion(source: str) -> dict:
         try:
             if source == "domain_api":
                 inserted, updated = await _run_domain(db, run)
+            elif source == "homely":
+                inserted, updated = await _run_homely(db, run)
             elif source == "onthehouse":
                 inserted, updated = await _run_onthehouse(db, run)
             elif source == "valuer_general":
@@ -209,11 +301,12 @@ async def run_ingestion(source: str) -> dict:
                 inserted, updated = await _run_fuzzy_vg_match()
             elif source == "all":
                 i1, u1 = await _run_domain(db, run)
-                i2, u2 = await _run_onthehouse(db, run)
-                i3, u3 = await _run_valuer_general(db, run)
-                i4, u4 = await _run_nsw_sales(db, run)
-                i5, u5 = await _run_fuzzy_vg_match()
-                inserted, updated = i1 + i2 + i3 + i4 + i5, u1 + u2 + u3 + u4 + u5
+                i2, u2 = await _run_homely(db, run)
+                i3, u3 = await _run_onthehouse(db, run)
+                i4, u4 = await _run_valuer_general(db, run)
+                i5, u5 = await _run_nsw_sales(db, run)
+                i6, u6 = await _run_fuzzy_vg_match()
+                inserted, updated = i1+i2+i3+i4+i5+i6, u1+u2+u3+u4+u5+u6
             else:
                 raise ValueError(f"Unknown source: {source}. Valid: {VALID_SOURCES}")
 

@@ -83,6 +83,7 @@ def load_nsw_sales_csv(file_path: str) -> list[dict]:
     contract_date_col = _col(["Contract Date", "CONTRACT_DATE"])
     area_col = _col(["Area", "AREA"])
     area_type_col = _col(["Area Type", "AREA_TYPE"])
+    strata_col = _col(["Strata Lot Number", "STRATA_LOT_NUMBER"])
 
     for row in reader:
         price = _parse_price(row.get(price_col, "") if price_col else "")
@@ -112,6 +113,10 @@ def load_nsw_sales_csv(file_path: str) -> list[dict]:
         suburb = row.get(suburb_col, "").strip().title() if suburb_col else None
         postcode = row.get(postcode_col, "").strip()[:4] if postcode_col else None
 
+        # Strata lot number present → apartment/unit; absent → house
+        strata_val = row.get(strata_col, "").strip() if strata_col else ""
+        is_strata = bool(strata_val and strata_val not in ("0", ""))
+
         records.append({
             "address_street": street or None,
             "address_suburb": suburb,
@@ -119,6 +124,7 @@ def load_nsw_sales_csv(file_path: str) -> list[dict]:
             "sold_price_cents": price,
             "sold_at": sold_date,
             "land_size_sqm": land_sqm,
+            "strata": is_strata,
         })
 
     logger.info("NSW Sales CSV parsed", file=file_path, records=len(records))

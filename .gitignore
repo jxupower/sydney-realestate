@@ -22,8 +22,9 @@ env/
 backend/app/ml/artifacts/*.joblib
 backend/app/ml/artifacts/*.pkl
 
-# Data drops (bulk CSVs)
-data/
+# Data drops (bulk CSVs) — ignore files but keep directory structure via .gitkeep
+data/**
+!data/**/.gitkeep
 
 # Alembic
 backend/alembic/versions/__pycache__/

@@ -22,11 +22,11 @@ BEAT_SCHEDULE = {
         "task": "ml.retrain",
         "schedule": crontab(minute=0, hour=2, day_of_week="sunday"),
     },
-    # OnTheHouse scrape: daily at 1am AEST
-    "ingest-onthehouse-daily": {
+    # Homely.com.au scrape: daily at 1am AEST (server-side rendered — no headless browser needed)
+    "ingest-homely-daily": {
         "task": "ingestion.run",
         "schedule": crontab(minute=0, hour=1),
-        "args": ("onthehouse",),
+        "args": ("homely",),
     },
     # Fuzzy VG match: daily at 5am AEST (after VG import and ingestion)
     "fuzzy-vg-match-daily": {

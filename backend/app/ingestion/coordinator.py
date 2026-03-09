@@ -195,82 +195,79 @@ async def _run_fuzzy_vg_match() -> tuple[int, int]:
 
 
 async def _run_nsw_sales(db: AsyncSession, run: IngestionRun) -> tuple[int, int]:
-    """Match NSW Sales records to existing properties and update sold_price/sold_at.
-    For unmatched rows, insert a new Property record (status=sold) for ML training use.
+    """Ingest NSW Property Sales data as ML training records.
+
+    Each sale is upserted by (source='nsw_sales', external_id) derived from the
+    VG district+property+sale_counter key — making ingestion fully idempotent.
+    Re-running with the same ZIPs will update existing rows rather than duplicating.
     """
     from app.ingestion.nsw_sales import load_all_nsw_sales
-    from sqlalchemy import select, and_
-    from app.db.models.property import Property
 
     records = load_all_nsw_sales()
     run.records_fetched = len(records)
     inserted = updated = 0
 
+    repo = PropertyRepository(db)
     suburb_repo = SuburbRepository(db)
 
     for rec in records:
-        if not rec.get("address_street") or not rec.get("address_suburb"):
+        if not rec.get("address_suburb"):
             continue
 
-        result = await db.execute(
-            select(Property).where(
-                and_(
-                    Property.address_street.ilike(f"%{rec['address_street']}%"),
-                    Property.address_suburb.ilike(rec["address_suburb"]),
-                )
-            ).limit(1)
-        )
-        prop = result.scalar_one_or_none()
-
-        if prop:
-            # Update existing property with sale data
-            if rec.get("sold_price_cents"):
-                prop.sold_price = rec["sold_price_cents"]
-                prop.sold_at = rec.get("sold_at")
-                prop.status = "sold"
-                if rec.get("land_size_sqm") and not prop.land_size_sqm:
-                    prop.land_size_sqm = rec["land_size_sqm"]
-                updated += 1
+        # Build stable external_id from VG identifiers (DAT) or address+date (CSV)
+        source_key = rec.get("_source_key")
+        if source_key:
+            external_id = f"vg_{source_key}"
         else:
-            # Insert new training-only sold property record
-            suburb_id = None
-            if rec.get("address_suburb") and rec.get("address_postcode"):
-                suburb, _ = await suburb_repo.upsert(
-                    name=rec["address_suburb"],
-                    postcode=rec["address_postcode"],
-                )
-                suburb_id = suburb.id
-
             sold_date = rec.get("sold_at")
             date_str = sold_date.strftime("%Y%m%d") if sold_date else "unknown"
-            street_slug = (rec["address_street"] or "").replace(" ", "_")[:40]
+            street_slug = (rec.get("address_street") or "").replace(" ", "_")[:40]
             postcode = rec.get("address_postcode") or "0000"
             external_id = f"nsw_{postcode}_{street_slug}_{date_str}"
-            url = f"nsw_sales://{external_id}"
 
-            is_strata = rec.get("strata", False)
-            property_type = "apartment" if is_strata else "house"
+        url = f"nsw_sales://{external_id}"
+        postcode = rec.get("address_postcode") or "0000"
+        is_strata = rec.get("strata", False)
+        property_type = "apartment" if is_strata else "house"
 
-            new_prop = Property(
-                external_id=external_id,
-                source="nsw_sales",
-                url=url,
-                status="sold",
-                property_type=property_type,
-                address_street=rec.get("address_street"),
-                address_suburb=rec.get("address_suburb"),
-                address_postcode=postcode,
-                suburb_id=suburb_id,
-                land_size_sqm=rec.get("land_size_sqm"),
-                sold_price=rec.get("sold_price_cents"),
-                sold_at=sold_date,
+        suburb_id = None
+        if rec.get("address_suburb") and postcode:
+            suburb, _ = await suburb_repo.upsert(
+                name=rec["address_suburb"],
+                postcode=postcode,
             )
-            db.add(new_prop)
-            inserted += 1
+            suburb_id = suburb.id
 
-        # Flush periodically to avoid huge memory usage on large CSV batches
-        if (inserted + updated) % 500 == 0:
-            await db.flush()
+        data = {
+            "external_id": external_id,
+            "source": "nsw_sales",
+            "url": url,
+            "status": "sold",
+            "property_type": property_type,
+            "address_street": rec.get("address_street"),
+            "address_suburb": rec.get("address_suburb"),
+            "address_postcode": postcode,
+            "suburb_id": suburb_id,
+            "land_size_sqm": rec.get("land_size_sqm"),
+            "sold_price": rec.get("sold_price_cents"),
+            "sold_at": rec.get("sold_at"),
+        }
+
+        _, was_inserted = await repo.upsert(data)
+        if was_inserted:
+            inserted += 1
+        else:
+            updated += 1
+
+        # Commit periodically to keep memory bounded on large imports
+        if (inserted + updated) % 1000 == 0:
+            await db.commit()
+            logger.info(
+                "NSW Sales progress",
+                inserted=inserted,
+                updated=updated,
+                total_processed=inserted + updated,
+            )
 
     await db.commit()
     logger.info("NSW Sales ingestion complete", inserted=inserted, updated=updated)

@@ -150,6 +150,8 @@ def _parse_dat_record(line: str) -> Optional[dict]:
     property_id = _f(fields, 2)
     sale_counter = _f(fields, 3)
 
+    district = _f(fields, 1)
+
     return {
         "address_street": street,
         "address_suburb": suburb,
@@ -158,8 +160,9 @@ def _parse_dat_record(line: str) -> Optional[dict]:
         "sold_at": sold_date,
         "land_size_sqm": land_sqm,
         "strata": is_strata,
-        # Keep a stable key for deduplication in coordinator
-        "_source_key": f"{property_id}_{sale_counter}",
+        # Stable deduplication key: district_code + property_id + sale_counter
+        # unique within the VG dataset across all LGAs
+        "_source_key": f"{district}_{property_id}_{sale_counter}",
     }
 
 

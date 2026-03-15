@@ -28,7 +28,10 @@ from app.utils.logger import configure_logging
 
 logger = structlog.get_logger(__name__)
 
-VALID_SOURCES = ["domain_api", "homely", "onthehouse", "valuer_general", "nsw_sales", "fuzzy_vg_match", "all"]
+VALID_SOURCES = [
+    "domain_api", "homely", "onthehouse", "valuer_general", "nsw_sales",
+    "fuzzy_vg_match", "geocode_suburbs", "clear_seed", "all",
+]
 
 
 async def _run_domain(db: AsyncSession, run: IngestionRun) -> tuple[int, int]:
@@ -111,6 +114,8 @@ async def _run_valuer_general(db: AsyncSession, run: IngestionRun) -> tuple[int,
 
 
 async def _run_onthehouse(db: AsyncSession, run: IngestionRun) -> tuple[int, int]:
+    import hashlib
+    import random
     from app.ingestion.onthehouse_scraper import OnTheHouseScraper
 
     ingester = OnTheHouseScraper()
@@ -123,6 +128,7 @@ async def _run_onthehouse(db: AsyncSession, run: IngestionRun) -> tuple[int, int
 
     for raw in raw_items:
         suburb_id = None
+        suburb = None
         if raw.address_suburb and raw.address_postcode:
             suburb, _ = await suburb_repo.upsert(
                 name=raw.address_suburb,
@@ -134,6 +140,15 @@ async def _run_onthehouse(db: AsyncSession, run: IngestionRun) -> tuple[int, int
 
         data = raw.to_db_dict()
         data["suburb_id"] = suburb_id
+
+        # OTH list pages don't provide lat/lng — fall back to suburb centroid + jitter
+        # so properties appear as map markers. Jitter is deterministic (md5 seed) so
+        # re-running the same URL always pins to the same spot.
+        if not data.get("latitude") and suburb and suburb.latitude:
+            seed = int(hashlib.md5(raw.url.encode()).hexdigest()[:8], 16)
+            rng = random.Random(seed)
+            data["latitude"] = suburb.latitude + rng.uniform(-0.005, 0.005)
+            data["longitude"] = suburb.longitude + rng.uniform(-0.005, 0.005)
 
         _, was_inserted = await repo.upsert(data)
         if was_inserted:
@@ -185,6 +200,36 @@ async def _run_homely(db: AsyncSession, run: IngestionRun) -> tuple[int, int]:
     await db.commit()
     logger.info("Homely ingestion complete", inserted=inserted, updated=updated)
     return inserted, updated
+
+
+async def _run_clear_seed(db: AsyncSession) -> tuple[int, int]:
+    """Delete all seed/synthetic properties and their dependents (ml_valuations, watchlist)."""
+    from sqlalchemy import text
+
+    logger.info("Clearing seed/synthetic data from database")
+    await db.execute(text(
+        "DELETE FROM ml_valuations WHERE property_id IN "
+        "(SELECT id FROM properties WHERE source IN ('seed', 'synthetic'))"
+    ))
+    await db.execute(text(
+        "DELETE FROM watchlist WHERE property_id IN "
+        "(SELECT id FROM properties WHERE source IN ('seed', 'synthetic'))"
+    ))
+    result = await db.execute(text(
+        "DELETE FROM properties WHERE source IN ('seed', 'synthetic') RETURNING id"
+    ))
+    deleted = len(result.fetchall())
+    await db.commit()
+    logger.info("Seed data cleared", deleted=deleted)
+    return deleted, 0
+
+
+async def _run_geocode_suburbs(db: AsyncSession) -> tuple[int, int]:
+    """Geocode all suburbs with NULL lat/lng via Nominatim."""
+    from app.ingestion.suburb_geocoder import geocode_all_suburbs
+
+    result = await geocode_all_suburbs(db)
+    return result["geocoded"], result["failed"]
 
 
 async def _run_fuzzy_vg_match() -> tuple[int, int]:
@@ -296,6 +341,10 @@ async def run_ingestion(source: str) -> dict:
                 inserted, updated = await _run_nsw_sales(db, run)
             elif source == "fuzzy_vg_match":
                 inserted, updated = await _run_fuzzy_vg_match()
+            elif source == "clear_seed":
+                inserted, updated = await _run_clear_seed(db)
+            elif source == "geocode_suburbs":
+                inserted, updated = await _run_geocode_suburbs(db)
             elif source == "all":
                 i1, u1 = await _run_domain(db, run)
                 i2, u2 = await _run_homely(db, run)

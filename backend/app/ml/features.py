@@ -105,12 +105,21 @@ class FeatureBuilder:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def build_for_training(self) -> pd.DataFrame:
+    async def build_for_training(self, sold_since: date | None = None) -> pd.DataFrame:
         """Return rows for sold properties with a non-null sold_price.
 
         Adds a ``target_price_cents`` column for the training target.
+        ``sold_since`` limits to sales on or after that date (default: 5 years ago)
+        to keep the dataset in memory on modest hardware.
         """
-        rows = await self._fetch_properties(status_filter="sold", require_sold_price=True)
+        if sold_since is None:
+            from datetime import timedelta
+            sold_since = date.today().replace(year=date.today().year - 5)
+        rows = await self._fetch_properties(
+            status_filter="sold",
+            require_sold_price=True,
+            sold_since=sold_since,
+        )
         df = self._to_dataframe(rows)
         return df
 
@@ -131,6 +140,7 @@ class FeatureBuilder:
         status_filter: str | None = None,
         require_sold_price: bool = False,
         property_ids: Sequence[int] | None = None,
+        sold_since: date | None = None,
     ) -> list[dict]:
         """Execute a wide JOIN query and return a list of raw row dicts."""
 
@@ -200,6 +210,8 @@ class FeatureBuilder:
             )
         if property_ids:
             stmt = stmt.where(Property.id.in_(property_ids))
+        if sold_since:
+            stmt = stmt.where(Property.sold_at >= sold_since)
 
         result = await self.db.execute(stmt)
         return [dict(row._mapping) for row in result]

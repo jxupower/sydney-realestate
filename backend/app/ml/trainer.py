@@ -70,10 +70,12 @@ async def run_training(
 
     from app.db.session import AsyncSessionLocal
 
-    logger.info("Loading training data from database...")
+    from datetime import timedelta
+    sold_since = cutoff.replace(year=cutoff.year - 5)
+    logger.info("Loading training data from database...", sold_since=str(sold_since), cutoff=str(cutoff))
     async with AsyncSessionLocal() as db:
         fb = FeatureBuilder(db)
-        df = await fb.build_for_training()
+        df = await fb.build_for_training(sold_since=sold_since)
 
     if df.empty:
         logger.error("No training data found. Ingest sold properties first.")

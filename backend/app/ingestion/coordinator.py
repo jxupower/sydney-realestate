@@ -255,8 +255,21 @@ async def _run_nsw_sales(db: AsyncSession, run: IngestionRun) -> tuple[int, int]
     repo = PropertyRepository(db)
     suburb_repo = SuburbRepository(db)
 
+    # Sydney metro postcode ranges (Greater Sydney + commuter belt).
+    sydney_postcode_ranges = [(2000, 2249), (2555, 2574), (2745, 2786)]
+
+    def _is_sydney(pc: str) -> bool:
+        if not pc or not pc.isdigit():
+            return False
+        n = int(pc)
+        return any(lo <= n <= hi for lo, hi in sydney_postcode_ranges)
+
+    skipped_non_sydney = 0
     for rec in records:
         if not rec.get("address_suburb"):
+            continue
+        if not _is_sydney(rec.get("address_postcode") or ""):
+            skipped_non_sydney += 1
             continue
 
         # Build stable external_id from VG identifiers (DAT) or address+date (CSV)
@@ -315,7 +328,12 @@ async def _run_nsw_sales(db: AsyncSession, run: IngestionRun) -> tuple[int, int]
             )
 
     await db.commit()
-    logger.info("NSW Sales ingestion complete", inserted=inserted, updated=updated)
+    logger.info(
+        "NSW Sales ingestion complete",
+        inserted=inserted,
+        updated=updated,
+        skipped_non_sydney=skipped_non_sydney,
+    )
     return inserted, updated
 
 

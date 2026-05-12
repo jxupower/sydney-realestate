@@ -82,7 +82,21 @@ async def run_training(
         return {"status": "failed", "reason": "no_data"}
 
     df = df.dropna(subset=["target_price_cents"])
-    logger.info("Training data loaded", rows=len(df))
+
+    # Residential price filter: $200k–$20M. Below = data errors / family
+    # transfers / token sales; above = commercial / extreme luxury that
+    # warps loss without adding signal at this feature richness.
+    before = len(df)
+    df = df[
+        (df["target_price_cents"] >= 20_000_000)
+        & (df["target_price_cents"] <= 2_000_000_000)
+    ]
+    logger.info(
+        "Filtered residential price range",
+        before=before,
+        after=len(df),
+        removed=before - len(df),
+    )
 
     if len(df) < MIN_TRAINING_ROWS:
         logger.error(
